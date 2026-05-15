@@ -2,8 +2,8 @@
   "family": "td-worker-svc",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
-  "cpu": "512",
-  "memory": "1024",
+  "cpu": "256",
+  "memory": "512",
   "executionRoleArn": "arn:aws:iam::182086865009:role/ecsTaskExecutionRole",
   "taskRoleArn":      "arn:aws:iam::182086865009:role/pixel-task-role",
   "containerDefinitions": [
