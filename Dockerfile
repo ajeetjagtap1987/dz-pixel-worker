@@ -5,15 +5,16 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /src
 
-# Copy module files first for better layer caching
+# Copy module file + any existing go.sum for layer caching
 COPY go.mod go.sum* ./
-RUN go mod download && go mod tidy
+RUN go mod download
 
-# Copy source and build
+# Copy source, reconcile go.sum against actual imports, then build
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w -X main.version=$(cat /tmp/version 2>/dev/null || echo dev)" \
-    -o /out/server .
+RUN go mod tidy && \
+    CGO_ENABLED=0 GOOS=linux go build \
+      -ldflags="-s -w -X main.version=$(cat /tmp/version 2>/dev/null || echo dev)" \
+      -o /out/server .
 
 # ============ Runtime stage ============
 FROM alpine:3.20
