@@ -1,0 +1,48 @@
+{
+  "family": "td-worker-svc",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::182086865009:role/ecsTaskExecutionRole",
+  "taskRoleArn":      "arn:aws:iam::182086865009:role/pixel-task-role",
+  "containerDefinitions": [
+    {
+      "name": "worker",
+      "image": "PLACEHOLDER_REPLACED_BY_WORKFLOW",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 8080, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "PORT",      "value": "8080" },
+        { "name": "LOG_LEVEL", "value": "info" }
+      ],
+      "secrets": [
+        { "name": "REDIS_HOST",          "valueFrom": "arn:aws:secretsmanager:ap-south-1:182086865009:secret:pixel/redis:host::" },
+        { "name": "REDIS_PORT",          "valueFrom": "arn:aws:secretsmanager:ap-south-1:182086865009:secret:pixel/redis:port::" },
+        { "name": "REDIS_PASSWORD",      "valueFrom": "arn:aws:secretsmanager:ap-south-1:182086865009:secret:pixel/redis:password::" },
+        { "name": "CLICKHOUSE_HOST",     "valueFrom": "arn:aws:secretsmanager:ap-south-1:182086865009:secret:pixel/clickhouse:host::" },
+        { "name": "CLICKHOUSE_PORT",     "valueFrom": "arn:aws:secretsmanager:ap-south-1:182086865009:secret:pixel/clickhouse:port::" },
+        { "name": "CLICKHOUSE_USER",     "valueFrom": "arn:aws:secretsmanager:ap-south-1:182086865009:secret:pixel/clickhouse:user::" },
+        { "name": "CLICKHOUSE_PASSWORD", "valueFrom": "arn:aws:secretsmanager:ap-south-1:182086865009:secret:pixel/clickhouse:password::" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group":         "/ecs/pixel-prod",
+          "awslogs-region":        "ap-south-1",
+          "awslogs-stream-prefix": "worker",
+          "awslogs-create-group":  "true"
+        }
+      },
+      "healthCheck": {
+        "command":     ["CMD-SHELL", "curl -fsS http://localhost:8080/healthz || exit 1"],
+        "interval":    30,
+        "timeout":     5,
+        "retries":     3,
+        "startPeriod": 15
+      }
+    }
+  ]
+}

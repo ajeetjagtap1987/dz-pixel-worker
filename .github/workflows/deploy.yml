@@ -5,88 +5,80 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# OIDC permissions — required for AWS auth without long-lived keys
 permissions:
   id-token: write
   contents: read
 
 env:
-  AWS_REGION:          ${{ vars.AWS_REGION }}          # e.g., ap-south-1
-  ECR_REPOSITORY:      ${{ vars.ECR_REPOSITORY }}      # e.g., dz-pixel-collect
-  ECS_CLUSTER:         ${{ vars.ECS_CLUSTER }}         # e.g., pixel-prod
-  ECS_SERVICE:         ${{ vars.ECS_SERVICE }}         # e.g., collect-svc
-  ECS_TASK_DEFINITION: ${{ vars.ECS_TASK_DEFINITION }} # e.g., td-collect-svc
-  CONTAINER_NAME:      ${{ vars.CONTAINER_NAME }}      # e.g., collect
+  AWS_REGION:          ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY:      ${{ vars.ECR_REPOSITORY }}
+  ECS_CLUSTER:         ${{ vars.ECS_CLUSTER }}
+  ECS_SERVICE:         ${{ vars.ECS_SERVICE }}
+  CONTAINER_NAME:      ${{ vars.CONTAINER_NAME }}
 
 jobs:
   deploy:
     name: Build, Push, Deploy
     runs-on: ubuntu-latest
-    environment: production
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---------- AWS auth via OIDC ----------
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume:    ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region:        ${{ env.AWS_REGION }}
           role-session-name: github-actions-${{ github.run_id }}
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # ---------- Build & push image ----------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build, tag, and push image to ECR
+      - name: Build, tag, and push image
         id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG:    ${{ github.sha }}
         run: |
           docker buildx build \
             --platform linux/amd64 \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" \
+            -t "$ECR_REGISTRY/$ECR_REPOSITORY:latest" \
             --push \
             .
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
-      # ---------- Render new task definition ----------
-      - name: Download current task definition
-        run: |
-          aws ecs describe-task-definition \
-            --task-definition $ECS_TASK_DEFINITION \
-            --query taskDefinition > task-definition.json
-
+      # === KEY CHANGE: use task-definition.json from the REPO ===
+      # No more 'describe-task-definition'. The file lives in your repo,
+      # is version-controlled, and acts as the source of truth.
       - name: Render task definition with new image
         id: render
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: task-definition.json
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image }}
+          container-name:  ${{ env.CONTAINER_NAME }}
+          image:           ${{ steps.build-image.outputs.image }}
 
-      # ---------- Deploy to ECS ----------
+      # This registers a NEW task definition revision every push.
+      # First time: creates revision 1. Next time: revision 2. And so on.
+      # Service is updated to use the new revision.
       - name: Deploy to ECS
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
-          task-definition: ${{ steps.render.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
-          wait-for-minutes: 10
+          task-definition:             ${{ steps.render.outputs.task-definition }}
+          service:                     ${{ env.ECS_SERVICE }}
+          cluster:                     ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability:  true
+          wait-for-minutes:            10
 
-      - name: Deployment summary
+      - name: Summary
         run: |
-          echo "### ✅ Deployment Complete" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image:** \`${{ steps.build-image.outputs.image }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Cluster:** \`${{ env.ECS_CLUSTER }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Service:** \`${{ env.ECS_SERVICE }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Deployment Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Image:** \`${{ steps.build-image.outputs.image }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Cluster:** \`${{ env.ECS_CLUSTER }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Service:** \`${{ env.ECS_SERVICE }}\`" >> "$GITHUB_STEP_SUMMARY"
